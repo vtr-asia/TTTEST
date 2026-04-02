@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系統啟動 | 糖尿病共照網</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script>
+        // 憑證資訊整合
+        const CLIENT_ID = "cc344727-6f90-496c-94fd-c7829aa9a51d";
+        const CLIENT_SECRET = "79f04b56b33491716c0880af72cdef7d3f0629111421cedd18353651cd313d9e"; 
+        const REDIRECT_URI = window.location.origin + "/index.html";
+        const SCOPES = "launch patient/*.read openid fhirUser profile";
+
+        function getUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                iss: params.get('iss'),
+                launch: params.get('launch')
+            };
+        }
+
+        async function startEHRLaunch() {
+            const { iss, launch } = getUrlParams();
+
+            if (!iss) {
+                document.getElementById('status').innerHTML = `
+                    <div class="text-amber-400">
+                        <i class="fa-solid fa-triangle-exclamation text-4xl"></i>
+                        <p class="mt-4 text-lg">缺少 iss 參數</p>
+                        <p class="text-sm mt-2">請透過 <a href="https://launch.smarthealthit.org/" target="_blank" class="underline">SMART Launcher</a> 啟動測試</p>
+                    </div>
+                `;
+                return;
+            }
+
+            document.getElementById('status').innerHTML = `
+                <i class="fa-solid fa-spinner fa-spin text-5xl text-blue-400"></i>
+                <p class="mt-6 text-slate-300 text-xl">正在連線至衛福部 FHIR 沙盒進行授權...</p>
+                <p class="text-xs text-slate-500 mt-3">iss: ${iss}</p>
+            `;
+
+            try {
+                // 1. 自動偵測 SMART 配置
+                const configUrl = iss.replace(/\/$/, '') + '/.well-known/smart-configuration';
+                const configRes = await fetch(configUrl, { cache: 'no-cache' });
+
+                if (!configRes.ok) throw new Error(`無法取得 SMART 配置 (${configRes.status})`);
+
+                const config = await configRes.json();
+
+                // 2. 儲存關鍵參數與 Secret 給 index.html 使用
+                sessionStorage.setItem('fhir_iss', iss);
+                sessionStorage.setItem('fhir_token_url', config.token_endpoint);
+                sessionStorage.setItem('fhir_client_id', CLIENT_ID);
+                sessionStorage.setItem('fhir_client_secret', CLIENT_SECRET); // 加入 Secret 供 Token 交換使用
+                if (launch) sessionStorage.setItem('fhir_launch', launch);
+
+                // 3. 建構 OAuth 2.0 授權請求
+                const state = btoa(Math.random().toString(36)).slice(0, 20);
+                const authParams = new URLSearchParams({
+                    response_type: 'code',
+                    client_id: CLIENT_ID,
+                    redirect_uri: REDIRECT_URI,
+                    scope: SCOPES,
+                    state: state,
+                    aud: iss,
+                    launch: launch || ''
+                });
+
+                const authorizeUrl = `${config.authorization_endpoint}?${authParams.toString()}`;
+                console.log('🚀 導向授權頁面:', authorizeUrl);
+                window.location.href = authorizeUrl;
+
+            } catch (error) {
+                console.error(error);
+                document.getElementById('status').innerHTML = `
+                    <div class="text-red-400">
+                        <i class="fa-solid fa-circle-exclamation text-4xl"></i>
+                        <p class="mt-4 text-lg">啟動失敗</p>
+                        <p class="text-sm mt-2">${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        window.onload = () => {
+            const params = getUrlParams();
+            if (params.iss) {
+                startEHRLaunch();
+            } else {
+                document.getElementById('status').innerHTML = `
+                    <div class="max-w-md mx-auto bg-slate-800/70 p-8 rounded-3xl border border-slate-700 text-center">
+                        <i class="fa-solid fa-notes-medical text-6xl text-blue-400 mb-4"></i>
+                        <h1 class="text-3xl font-black text-white">糖尿病共照網</h1>
+                        <p class="text-blue-400 font-mono text-sm mt-1">SMART on FHIR Launch</p>
+                        <div class="mt-8 text-left text-sm text-slate-400 space-y-3">
+                            <p>✅ Client ID & Secret 已就緒</p>
+                            <p class="text-amber-400">請由醫療系統環境啟動 (EHR Launch)</p>
+                        </div>
+                    </div>
+                `;
+            }
+        };
+    </script>
+</head>
+<body class="bg-gradient-to-br from-slate-900 to-slate-800 min-h-screen flex items-center justify-center p-6">
+    <div class="max-w-4xl w-full">
+        <div class="text-center mb-12">
+            <div class="inline-block p-4 bg-blue-500/10 rounded-2xl mb-4 border border-blue-500/20">
+                <i class="fa-solid fa-notes-medical text-5xl text-blue-400"></i>
+            </div>
+            <h1 class="text-4xl font-black text-white tracking-tight italic">SMART <span class="text-blue-400 text-not-italic font-light">on</span> FHIR</h1>
+            <p class="text-slate-400 mt-2 font-mono text-sm uppercase tracking-widest">糖尿病共照網品質監測系統</p>
+        </div>
+
+        <div id="status" class="text-center py-16">
+            <i class="fa-solid fa-spinner fa-spin text-4xl text-blue-400"></i>
+            <p class="mt-6 text-slate-300">準備啟動 EHR Launch 流程...</p>
+        </div>
+
+        <footer class="mt-16 text-center text-slate-600 text-xs">
+            <p>© 2026 糖尿病共照網品質監測系統 | Powered by FHIR R4</p>
+            <p class="mt-2 font-mono text-[10px]">Client: cc344727... | Secret: 79f04b...</p>
+        </footer>
+    </div>
+</body>
+</html>
